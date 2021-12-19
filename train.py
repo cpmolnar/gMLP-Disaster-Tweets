@@ -2,7 +2,7 @@ from g_mlp_pytorch import gMLP
 from g_mlp_pytorch.autoregressive_wrapper import AutoregressiveWrapper
 
 import random
-import tqdm
+from tqdm.autonotebook import tqdm
 import gzip
 import numpy as np
 import torch
@@ -78,9 +78,18 @@ val_loader    = DataLoader(val_dataset, batch_size = BATCH_SIZE)
 optim = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 # training
-pbar = tqdm.tqdm(range(NUM_BATCHES), mininterval=10.)
+if not os.path.isdir('checkpoints'):
+    os.mkdir('checkpoints')
+if len(os.listdir('checkpoints')) > 0:
+    state_dict_file = os.listdir('checkpoints')[0]
+    start_iter = int(state_dict_file.split('.')[0].split('_')[1])
+    print(f'Loading {state_dict_file}. Starting at iteration {start_iter}...')
+    model.load_state_dict(torch.load('checkpoints/'+state_dict_file))
+else: start_iter=0
+
+pbar = tqdm(range(NUM_BATCHES), mininterval=10.)
 train_loss=0.0
-for i in pbar:
+for iter in pbar:
     model.train()
 
     for __ in range(GRADIENT_ACCUMULATE_EVERY):
@@ -95,14 +104,15 @@ for i in pbar:
 
     train_loss+=loss
 
-    pbar.set_description(f"Iteration {i+1}, training_loss: {train_loss/((i%VALIDATE_EVERY)+1)}")
+    pbar.set_description(f"Iteration {start_iter+iter+1}, training_loss: {train_loss/((iter%VALIDATE_EVERY)+1)}")
     torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
     optim.step()
     optim.zero_grad()
 
-    if i % VALIDATE_EVERY == VALIDATE_EVERY-1:
+    if iter % VALIDATE_EVERY == VALIDATE_EVERY-1:
         train_loss=0.0 #reset avg train loss
         model.eval()
+
         with torch.no_grad():
             val_loss=0.0
             preds_corr=0
@@ -120,4 +130,7 @@ for i in pbar:
             print(f'{"*"*100}')
             print()
 
-            # model.save('model.')
+            
+            for state_dict in os.listdir('checkpoints'):
+                os.remove('checkpoints/'+state_dict)
+            torch.save(model.state_dict(), f'checkpoints/model_{start_iter+iter+1}.pth')
